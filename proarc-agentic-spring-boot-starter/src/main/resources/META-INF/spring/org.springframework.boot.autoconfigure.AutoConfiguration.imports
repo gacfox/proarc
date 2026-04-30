@@ -1,0 +1,2 @@
+com.gacfox.proarc.agentic.config.LlmHttpClientAutoConfiguration
+com.gacfox.proarc.agentic.config.ToolRegistryAutoConfiguration
