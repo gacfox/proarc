@@ -1,5 +1,7 @@
 package com.gacfox.proarc.agentic.client;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gacfox.proarc.agentic.exception.LlmException;
 import com.gacfox.proarc.agentic.client.interceptor.LlmInterceptor;
 import com.gacfox.proarc.agentic.model.openai.ModelInfo;
@@ -9,6 +11,7 @@ import lombok.Builder;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 
 import java.util.List;
@@ -17,6 +20,8 @@ import java.util.List;
  * OpenAI兼容端点大语言模型客户端
  */
 public class OpenAiLlmClient extends AbstractLlmClient {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
     @Builder
     private OpenAiLlmClient(ModelInfo modelInfo, List<LlmInterceptor> interceptors, HttpClient httpClient) {
         super(modelInfo, interceptors, httpClient);
@@ -47,7 +52,15 @@ public class OpenAiLlmClient extends AbstractLlmClient {
                 .header(HttpHeaders.TRANSFER_ENCODING, "chunked")
                 .bodyValue(modelRequest)
                 .retrieve()
-                .bodyToFlux(ModelResponse.class)
+                .bodyToFlux(String.class)
+                .filter(data -> data != null && !"[DONE]".equals(data.trim()))
+                .flatMap(data -> {
+                    try {
+                        return Mono.just(OBJECT_MAPPER.readValue(data, ModelResponse.class));
+                    } catch (JsonProcessingException e) {
+                        return Mono.error(new RuntimeException("Failed to parse streaming response chunk", e));
+                    }
+                })
                 .onErrorMap(e -> e instanceof LlmException ? e : mapException(e));
     }
 }
