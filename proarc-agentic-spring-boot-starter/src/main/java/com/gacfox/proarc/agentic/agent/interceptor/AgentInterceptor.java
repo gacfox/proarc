@@ -10,6 +10,7 @@ import com.gacfox.proarc.agentic.agent.AgentLoopResult;
  * {@link AgentInterceptorChain} 掌握本轮下游调用，在
  * {@code chain.next(context)} 前后编写本轮前置和后置逻辑。
  */
+@FunctionalInterface
 public interface AgentInterceptor {
     /**
      * 环绕拦截一次智能体循环
@@ -18,9 +19,7 @@ public interface AgentInterceptor {
      * @param chain   拦截器链
      * @return 本轮循环结果
      */
-    default AgentLoopResult intercept(AgentContext context, AgentInterceptorChain chain) {
-        return chain.next(context);
-    }
+    AgentLoopResult intercept(AgentContext context, AgentInterceptorChain chain);
 
     /**
      * 排序值，值更小的优先级越高
