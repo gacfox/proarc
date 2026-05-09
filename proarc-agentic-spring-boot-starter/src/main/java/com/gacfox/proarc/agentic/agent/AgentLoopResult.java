@@ -25,12 +25,20 @@ public class AgentLoopResult {
      * 是否结束整次智能体执行
      */
     private boolean finished;
+    /**
+     * 是否由外部挂起执行（例如通过拦截器触发human-in-the-loop）
+     */
+    private boolean suspended;
 
     public static AgentLoopResult continueWith(List<AgentResponse> responses) {
-        return AgentLoopResult.builder().responses(responses).finished(false).build();
+        return AgentLoopResult.builder().responses(responses).finished(false).suspended(false).build();
     }
 
     public static AgentLoopResult finishWith(List<AgentResponse> responses) {
-        return AgentLoopResult.builder().responses(responses).finished(true).build();
+        return AgentLoopResult.builder().responses(responses).finished(true).suspended(false).build();
+    }
+
+    public static AgentLoopResult suspendWith(List<AgentResponse> responses) {
+        return AgentLoopResult.builder().responses(responses).finished(false).suspended(true).build();
     }
 }

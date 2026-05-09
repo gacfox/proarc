@@ -74,7 +74,7 @@ public class ReActAgentExecutor {
             for (AgentResponse response : loopResult.getResponses()) {
                 sink.next(response);
             }
-            if (loopResult.isFinished()) {
+            if (loopResult.isFinished() || loopResult.isSuspended()) {
                 return;
             }
         }
