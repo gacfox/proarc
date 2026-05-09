@@ -10,18 +10,17 @@ import lombok.NoArgsConstructor;
 import java.io.Serializable;
 
 /**
- * 流式返回选项
+ * 对话模板参数
  */
 @Data
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public class StreamOptions implements Serializable {
+public class ChatTemplateKwargs implements Serializable {
     /**
-     * 是否包含使用情况
+     * 是否开启思考
      */
-    @Builder.Default
-    @JsonProperty("include_usage")
-    private Boolean includeUsage = true;
+    @JsonProperty("enable_thinking")
+    private Boolean enableThinking;
 }

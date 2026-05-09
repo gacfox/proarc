@@ -5,6 +5,7 @@ import com.gacfox.proarc.agentic.client.interceptor.LlmInterceptor;
 import com.gacfox.proarc.agentic.client.interceptor.LlmInterceptorChain;
 import com.gacfox.proarc.agentic.exception.*;
 import com.gacfox.proarc.agentic.model.ChatRequest;
+import com.gacfox.proarc.agentic.model.openai.ChatTemplateKwargs;
 import com.gacfox.proarc.agentic.model.openai.ModelInfo;
 import com.gacfox.proarc.agentic.model.openai.ModelRequest;
 import com.gacfox.proarc.agentic.model.openai.ModelResponse;
@@ -87,7 +88,7 @@ public abstract class AbstractLlmClient implements LlmClient {
     }
 
     private ModelRequest toModelRequest(ChatRequest chatRequest, boolean stream) {
-        return ModelRequest.builder()
+        ModelRequest modelRequest = ModelRequest.builder()
                 .model(modelInfo.getModel())
                 .stream(stream)
                 .messages(chatRequest.getMessages())
@@ -100,6 +101,15 @@ public abstract class AbstractLlmClient implements LlmClient {
                 .maxTokens(chatRequest.getMaxTokens())
                 .tools(chatRequest.getTools())
                 .build();
+        if (!CollectionUtils.isEmpty(modelInfo.getCapabilities()) &&
+                modelInfo.getCapabilities().contains(ModelInfo.CAPABILITY_REASONING) &&
+                chatRequest.getEnableThinking() != null &&
+                chatRequest.getEnableThinking()) {
+            modelRequest.setChatTemplateKwargs(ChatTemplateKwargs.builder()
+                    .enableThinking(true)
+                    .build());
+        }
+        return modelRequest;
     }
 
     private LlmInterceptorChain buildBlockingChain(List<LlmInterceptor> list, int index) {

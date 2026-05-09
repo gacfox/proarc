@@ -80,6 +80,11 @@ public class ModelRequest implements Serializable {
     @JsonProperty("top_k")
     private Integer topK;
     /**
+     * 对话模板参数
+     */
+    @JsonProperty("chat_template_kwargs")
+    private ChatTemplateKwargs chatTemplateKwargs;
+    /**
      * 请求工具调用描述信息列表
      */
     @JsonProperty("tools")

@@ -30,6 +30,11 @@ public class ChatRequest implements Serializable {
     private Double temperature = 0.7;
 
     /**
+     * 是否开启思考（仅特定模型支持，且思考输出方式存在reasoning字段和think xml标签两种形式，未配置reasoning能力的模型和本身不支持reasoning的模型设置该字段不生效）
+     */
+    private Boolean enableThinking;
+
+    /**
      * 核采样参数
      */
     private Double topP;
