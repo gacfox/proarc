@@ -19,7 +19,7 @@ import java.util.List;
 /**
  * OpenAI兼容端点大语言模型客户端
  */
-public class OpenAiLlmClient extends AbstractLlmClient {
+public final class OpenAiLlmClient extends AbstractLlmClient {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Builder
