@@ -100,6 +100,7 @@ public abstract class AbstractLlmClient implements LlmClient {
                 .seed(chatRequest.getSeed())
                 .maxTokens(chatRequest.getMaxTokens())
                 .tools(chatRequest.getTools())
+                .toolChoice(chatRequest.getToolChoice())
                 .build();
         if (!CollectionUtils.isEmpty(modelInfo.getCapabilities()) &&
                 modelInfo.getCapabilities().contains(ModelInfo.CAPABILITY_REASONING) &&

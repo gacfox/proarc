@@ -89,4 +89,10 @@ public class ModelRequest implements Serializable {
      */
     @JsonProperty("tools")
     private List<Tool> tools;
+
+    /**
+     * 工具选择策略
+     */
+    @JsonProperty("tool_choice")
+    private Object toolChoice;
 }

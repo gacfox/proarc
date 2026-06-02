@@ -70,4 +70,9 @@ public class ChatRequest implements Serializable {
      * 请求工具调用描述信息列表
      */
     private List<Tool> tools;
+
+    /**
+     * 工具选择策略
+     */
+    private Object toolChoice;
 }
