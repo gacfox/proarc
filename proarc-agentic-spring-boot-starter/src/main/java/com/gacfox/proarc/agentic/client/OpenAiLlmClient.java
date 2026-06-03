@@ -30,6 +30,10 @@ public final class OpenAiLlmClient extends AbstractLlmClient {
     @Override
     protected ModelResponse doBlockingChat(ModelRequest modelRequest) {
         try {
+            // 阻塞式请求不支持streamOptions，手动置为空避免报400错误
+            modelRequest.setStream(false);
+            modelRequest.setStreamOptions(null);
+
             return webClient.post()
                     .uri(modelInfo.getEndpoint())
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + modelInfo.getSk())
@@ -45,6 +49,7 @@ public final class OpenAiLlmClient extends AbstractLlmClient {
 
     @Override
     protected Flux<ModelResponse> doStreamingChat(ModelRequest modelRequest) {
+        modelRequest.setStream(true);
         return webClient.post()
                 .uri(modelInfo.getEndpoint())
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + modelInfo.getSk())
