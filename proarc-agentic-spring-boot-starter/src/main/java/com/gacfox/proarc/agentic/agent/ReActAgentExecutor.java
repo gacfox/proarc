@@ -5,7 +5,6 @@ import com.gacfox.proarc.agentic.agent.interceptor.AgentInterceptorChain;
 import com.gacfox.proarc.agentic.client.LlmClient;
 import com.gacfox.proarc.agentic.model.ChatRequest;
 import com.gacfox.proarc.agentic.model.openai.*;
-import com.gacfox.proarc.agentic.tool.AgenticToolParam;
 import com.gacfox.proarc.agentic.tool.ToolDefinition;
 import com.gacfox.proarc.agentic.tool.ToolRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -195,22 +194,14 @@ public class ReActAgentExecutor {
             return "Error: tool '" + toolName + "' not found";
         }
         try {
-            JsonNode argsNode = OBJECT_MAPPER.readTree(arguments);
             java.lang.reflect.Method method = toolDef.getMethod();
-            java.lang.reflect.Parameter[] params = method.getParameters();
-            Object[] args = new Object[params.length];
-            for (int j = 0; j < params.length; j++) {
-                AgenticToolParam paramAnn =
-                        params[j].getAnnotation(AgenticToolParam.class);
-                String paramName = paramAnn != null ? paramAnn.name() : params[j].getName();
-                JsonNode valueNode = argsNode.get(paramName);
-                if (valueNode != null && !valueNode.isNull()) {
-                    args[j] = OBJECT_MAPPER.convertValue(valueNode, params[j].getType());
-                } else {
-                    args[j] = null;
-                }
+            Object result;
+            if (method.getParameterCount() == 0) {
+                result = method.invoke(toolDef.getBeanInstance());
+            } else {
+                Object arg = OBJECT_MAPPER.readValue(arguments, method.getParameterTypes()[0]);
+                result = method.invoke(toolDef.getBeanInstance(), arg);
             }
-            Object result = method.invoke(toolDef.getBeanInstance(), args);
             return result != null ? result.toString() : "null";
         } catch (Exception e) {
             log.error("Tool invocation error: {}", toolName, e);

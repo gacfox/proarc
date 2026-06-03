@@ -17,7 +17,7 @@ import java.util.List;
 @NoArgsConstructor
 public class ModelInfo implements Serializable {
     /**
-     * 提供商：openai OpenAI兼容API，maasNk 联通元景（通过能力开放平台方式）
+     * 提供商：openai OpenAI兼容API
      */
     private String provider;
     /**

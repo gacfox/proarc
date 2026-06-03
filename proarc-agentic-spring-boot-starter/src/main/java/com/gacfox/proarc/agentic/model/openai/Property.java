@@ -8,6 +8,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 参数属性
@@ -28,4 +30,19 @@ public class Property implements Serializable {
      */
     @JsonProperty("description")
     private String description;
+    /**
+     * 对象属性
+     */
+    @JsonProperty("properties")
+    private Map<String, Property> properties;
+    /**
+     * 对象必填属性
+     */
+    @JsonProperty("required")
+    private List<String> required;
+    /**
+     * 数组元素定义
+     */
+    @JsonProperty("items")
+    private Property items;
 }

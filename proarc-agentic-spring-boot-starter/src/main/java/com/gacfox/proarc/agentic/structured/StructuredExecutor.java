@@ -9,6 +9,7 @@ import com.gacfox.proarc.agentic.model.openai.ModelResponse;
 import com.gacfox.proarc.agentic.model.openai.Tool;
 import com.gacfox.proarc.agentic.model.openai.ToolCall;
 import com.gacfox.proarc.agentic.model.openai.ToolCallFunction;
+import com.gacfox.proarc.agentic.schema.AgenticSchemaBuilder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
@@ -23,7 +24,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class StructuredExecutor {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private final StructuredSchemaBuilder schemaBuilder = new StructuredSchemaBuilder();
+    private final AgenticSchemaBuilder schemaBuilder = new AgenticSchemaBuilder();
 
     private final LlmClient llmClient;
 
@@ -40,7 +41,7 @@ public class StructuredExecutor {
         String toolName = StringUtils.hasText(request.getToolName())
                 ? request.getToolName()
                 : "structured_output";
-        Tool tool = schemaBuilder.buildTool(request.getResponseType(), toolName);
+        Tool tool = schemaBuilder.buildTool(toolName, buildToolDescription(request.getResponseType()), request.getResponseType());
         ModelResponse modelResponse = llmClient.blockingChat(buildChatRequest(request, tool, toolName));
         ToolCall toolCall = extractToolCall(modelResponse, toolName);
         String arguments = toolCall.getFunction().getArguments();
@@ -108,6 +109,10 @@ public class StructuredExecutor {
             return defaultInstruction;
         }
         return defaultInstruction + "\n" + instruction;
+    }
+
+    private String buildToolDescription(Class<?> responseType) {
+        return "Return the structured output for " + responseType.getSimpleName();
     }
 
     private ToolCall extractToolCall(ModelResponse response, String toolName) {

@@ -1,8 +1,6 @@
 package com.gacfox.proarc.agentic.tool;
 
-import com.gacfox.proarc.agentic.model.openai.Function;
-import com.gacfox.proarc.agentic.model.openai.Parameters;
-import com.gacfox.proarc.agentic.model.openai.Property;
+import com.gacfox.proarc.agentic.schema.AgenticSchemaBuilder;
 import com.gacfox.proarc.agentic.model.openai.Tool;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -11,7 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class ToolRegistry {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private final AgenticSchemaBuilder schemaBuilder = new AgenticSchemaBuilder();
     private final Map<String, ToolDefinition> registry = new ConcurrentHashMap<>();
 
     /**
@@ -46,7 +44,7 @@ public class ToolRegistry {
                                 + "Conflicting definition found in " + clazz.getName() + "." + method.getName() + "()");
             }
 
-            validateParameterTypes(method);
+            validateToolMethod(method);
             String jsonSchema = buildJsonSchema(agenticTool, method);
             method.setAccessible(true);
             registry.put(toolName, new ToolDefinition(toolName, bean, method, jsonSchema));
@@ -73,71 +71,26 @@ public class ToolRegistry {
         return registry.get(toolName);
     }
 
-    private void validateParameterTypes(Method method) {
-        for (Parameter param : method.getParameters()) {
-            String jsonType = resolveJsonType(param.getType());
-            if (jsonType == null) {
-                throw new IllegalArgumentException(
-                        "Unsupported parameter type in tool method " + method.getName()
-                                + ": " + param.getType().getName() + " " + param.getName());
-            }
+    private void validateToolMethod(Method method) {
+        Parameter[] parameters = method.getParameters();
+        if (parameters.length > 1) {
+            throw new IllegalArgumentException("@AgenticTool method must declare zero or one DTO parameter: "
+                    + method.getDeclaringClass().getName() + "." + method.getName());
+        }
+        if (parameters.length == 1 && parameters[0].getAnnotation(AgenticToolParam.class) == null) {
+            throw new IllegalArgumentException("@AgenticTool DTO parameter must be annotated with @AgenticToolParam: "
+                    + method.getDeclaringClass().getName() + "." + method.getName());
         }
     }
 
     private String buildJsonSchema(AgenticTool agenticTool, Method method) {
-        Map<String, Property> properties = new LinkedHashMap<>();
-        List<String> required = new ArrayList<>();
-
-        for (Parameter param : method.getParameters()) {
-            AgenticToolParam toolParam = param.getAnnotation(AgenticToolParam.class);
-            if (toolParam == null) {
-                throw new IllegalArgumentException(
-                        "All parameters of @AgenticTool method must be annotated with @AgenticToolParam. "
-                                + "Missing on parameter '" + param.getName() + "' in method " + method.getName());
-            }
-            String jsonType = resolveJsonType(param.getType());
-            properties.put(toolParam.name(), Property.builder().type(jsonType).description(toolParam.description()).build());
-            required.add(toolParam.name());
-        }
-
-        Function function = Function.builder()
-                .name(agenticTool.name())
-                .description(agenticTool.description())
-                .parameters(Parameters.builder()
-                        .properties(properties)
-                        .required(required)
-                        .build())
-                .build();
-
-        Tool tool = Tool.builder().function(function).build();
+        Class<?> dtoType = method.getParameterCount() == 1 ? method.getParameterTypes()[0] : null;
+        Tool tool = schemaBuilder.buildTool(agenticTool.name(), agenticTool.description(), dtoType);
 
         try {
             return OBJECT_MAPPER.writeValueAsString(tool);
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize tool JSON schema", e);
         }
-    }
-
-    static String resolveJsonType(Class<?> type) {
-        if (type == String.class) {
-            return "string";
-        }
-        if (type == Integer.class || type == int.class) {
-            return "integer";
-        }
-        if (type == Double.class || type == double.class
-                || type == Float.class || type == float.class) {
-            return "number";
-        }
-        if (type == Boolean.class || type == boolean.class) {
-            return "boolean";
-        }
-        if (List.class.isAssignableFrom(type) || type.isArray()) {
-            return "array";
-        }
-        if (Map.class.isAssignableFrom(type) || !type.isPrimitive() && !type.getName().startsWith("java.")) {
-            return "object";
-        }
-        return null;
     }
 }
