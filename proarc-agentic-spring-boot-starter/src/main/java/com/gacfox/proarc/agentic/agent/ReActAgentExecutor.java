@@ -96,6 +96,14 @@ public class ReActAgentExecutor {
         List<AgentResponse> responses = new ArrayList<>();
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(context.getMessages())
+                .temperature(context.getTemperature())
+                .enableThinking(context.getEnableThinking())
+                .topP(context.getTopP())
+                .topK(context.getTopK())
+                .presencePenalty(context.getPresencePenalty())
+                .frequencyPenalty(context.getFrequencyPenalty())
+                .seed(context.getSeed())
+                .maxTokens(context.getMaxTokens())
                 .tools(tools)
                 .build();
         ModelResponse response = llmClient.blockingChat(chatRequest);
