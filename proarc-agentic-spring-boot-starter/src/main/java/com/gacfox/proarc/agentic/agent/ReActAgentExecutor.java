@@ -105,6 +105,7 @@ public class ReActAgentExecutor {
                 .seed(context.getSeed())
                 .maxTokens(context.getMaxTokens())
                 .tools(tools)
+                .toolChoice("required")
                 .build();
         ModelResponse response = llmClient.blockingChat(chatRequest);
 
