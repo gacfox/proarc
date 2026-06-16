@@ -203,15 +203,7 @@ public class ReActAgentExecutor {
             return "Error: tool '" + toolName + "' not found";
         }
         try {
-            java.lang.reflect.Method method = toolDef.getMethod();
-            Object result;
-            if (method.getParameterCount() == 0) {
-                result = method.invoke(toolDef.getBeanInstance());
-            } else {
-                Object arg = OBJECT_MAPPER.readValue(arguments, method.getParameterTypes()[0]);
-                result = method.invoke(toolDef.getBeanInstance(), arg);
-            }
-            return result != null ? result.toString() : "null";
+            return toolDef.getInvoker().invoke(arguments);
         } catch (Exception e) {
             log.error("Tool invocation error: {}", toolName, e);
             return "Error: " + e.getMessage();

@@ -23,7 +23,7 @@ public class ToolRegistry {
     private final Map<String, ToolDefinition> registry = new ConcurrentHashMap<>();
 
     /**
-     * 注册智能体工具
+     * 通过扫描 {@link AgenticTool} 注解注册工具
      *
      * @param bean 智能体工具实例
      */
@@ -36,19 +36,36 @@ public class ToolRegistry {
                 continue;
             }
 
-            String toolName = agenticTool.name();
-            if (registry.containsKey(toolName)) {
-                throw new IllegalStateException(
-                        "Duplicate agentic tool name detected: '" + toolName + "'. "
-                                + "Tool names must be globally unique. "
-                                + "Conflicting definition found in " + clazz.getName() + "." + method.getName() + "()");
-            }
-
             validateToolMethod(method);
             String jsonSchema = buildJsonSchema(agenticTool, method);
             method.setAccessible(true);
-            registry.put(toolName, new ToolDefinition(toolName, bean, method, jsonSchema));
-            log.info("Registered agentic tool: {} -> {}.{}", toolName, clazz.getSimpleName(), method.getName());
+            ToolDefinition toolDef = new ToolDefinition(agenticTool.name(), agenticTool.description(), jsonSchema, buildReflectionInvoker(bean, method));
+            register(toolDef);
+            log.info("Registered agentic tool from bean: {} -> {}.{}", agenticTool.name(), clazz.getSimpleName(), method.getName());
+        }
+    }
+
+    /**
+     * 注册工具定义，工具名全局唯一
+     *
+     * @param toolDef 工具定义
+     */
+    public void register(ToolDefinition toolDef) {
+        String toolName = toolDef.getToolName();
+        if (registry.putIfAbsent(toolName, toolDef) != null) {
+            throw new IllegalStateException(
+                    "Duplicate agentic tool name detected: '" + toolName + "'. Tool names must be globally unique.");
+        }
+    }
+
+    /**
+     * 取消注册工具
+     *
+     * @param toolName 工具名
+     */
+    public void unregister(String toolName) {
+        if (registry.remove(toolName) != null) {
+            log.info("Unregistered agentic tool: {}", toolName);
         }
     }
 
@@ -92,5 +109,18 @@ public class ToolRegistry {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize tool JSON schema", e);
         }
+    }
+
+    private ToolInvoker buildReflectionInvoker(Object bean, Method method) {
+        return arguments -> {
+            Object result;
+            if (method.getParameterCount() == 0) {
+                result = method.invoke(bean);
+            } else {
+                Object arg = OBJECT_MAPPER.readValue(arguments, method.getParameterTypes()[0]);
+                result = method.invoke(bean, arg);
+            }
+            return result != null ? result.toString() : "null";
+        };
     }
 }
