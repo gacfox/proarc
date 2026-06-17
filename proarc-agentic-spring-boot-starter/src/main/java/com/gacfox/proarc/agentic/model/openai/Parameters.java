@@ -1,5 +1,6 @@
 package com.gacfox.proarc.agentic.model.openai;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
@@ -19,6 +20,7 @@ import java.util.Map;
 @AllArgsConstructor
 @NoArgsConstructor
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class Parameters implements Serializable {
     /**
      * 结构类型，固定值object
