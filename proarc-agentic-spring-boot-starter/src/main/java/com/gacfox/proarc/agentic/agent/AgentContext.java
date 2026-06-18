@@ -33,7 +33,7 @@ public class AgentContext implements Serializable {
     /**
      * LLM客户端
      */
-    private LlmClient llmClient;
+    private transient LlmClient llmClient;
     /**
      * 工具名称列表
      */
