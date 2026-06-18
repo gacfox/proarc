@@ -78,4 +78,29 @@ public class AgentContext implements Serializable {
      */
     @Builder.Default
     private Map<String, Object> variables = new HashMap<>();
+
+    /**
+     * 创建当前上下文的防御性快照。
+     *
+     * <p>容器类（messages / toolNames / variables）做浅拷贝——防止工具增删条目污染主循环；
+     * 元素对象本身共享引用，工具不应修改元素内容（违反者属工具实现 bug）。
+     * <p>LlmClient 等复杂资源对象引用共享——不可重拷，且工具调用 LLM 是合理用例。
+     */
+    public AgentContext snapshot() {
+        return AgentContext.builder()
+                .contextId(contextId)
+                .messages(messages == null ? null : new ArrayList<>(messages))
+                .llmClient(llmClient)
+                .toolNames(toolNames == null ? null : new ArrayList<>(toolNames))
+                .temperature(temperature)
+                .enableThinking(enableThinking)
+                .topP(topP)
+                .topK(topK)
+                .presencePenalty(presencePenalty)
+                .frequencyPenalty(frequencyPenalty)
+                .seed(seed)
+                .maxTokens(maxTokens)
+                .variables(variables == null ? null : new HashMap<>(variables))
+                .build();
+    }
 }

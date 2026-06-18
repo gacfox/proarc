@@ -145,7 +145,7 @@ public class ReActAgentExecutor {
                 return AgentLoopResult.finishWith(responses);
             }
 
-            String result = invokeTool(toolMap, toolName, arguments);
+            String result = invokeTool(toolMap, toolName, arguments, context);
             responses.add(AgentResponse.toolResult(toolCall.getId(), toolName, result));
 
             context.getMessages().add(Message.builder()
@@ -197,13 +197,14 @@ public class ReActAgentExecutor {
         return tools;
     }
 
-    private String invokeTool(Map<String, ToolDefinition> toolMap, String toolName, String arguments) {
+    private String invokeTool(Map<String, ToolDefinition> toolMap, String toolName, String arguments, AgentContext agentContext) {
         ToolDefinition toolDef = toolMap.get(toolName);
         if (toolDef == null) {
             return "Error: tool '" + toolName + "' not found";
         }
         try {
-            return toolDef.getInvoker().invoke(arguments);
+            AgentContext snapshot = agentContext.snapshot();
+            return toolDef.getInvoker().invoke(arguments, snapshot);
         } catch (Exception e) {
             log.error("Tool invocation error: {}", toolName, e);
             return "Error: " + e.getMessage();

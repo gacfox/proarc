@@ -1,5 +1,6 @@
 package com.gacfox.proarc.agentic.tool;
 
+import com.gacfox.proarc.agentic.agent.AgentContext;
 import com.gacfox.proarc.agentic.schema.AgenticSchemaBuilder;
 import com.gacfox.proarc.agentic.model.openai.Tool;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -90,18 +91,34 @@ public class ToolRegistry {
 
     private void validateToolMethod(Method method) {
         Parameter[] parameters = method.getParameters();
-        if (parameters.length > 1) {
-            throw new IllegalArgumentException("@AgenticTool method must declare zero or one DTO parameter: "
+        int dtoCount = 0;
+        Parameter dtoParam = null;
+        for (Parameter p : parameters) {
+            if (p.getType() == AgentContext.class) {
+                continue;
+            }
+            dtoCount++;
+            dtoParam = p;
+        }
+        if (dtoCount > 1) {
+            throw new IllegalArgumentException("@AgenticTool method must declare at most one DTO parameter "
+                    + "(plus an optional AgentContext parameter): "
                     + method.getDeclaringClass().getName() + "." + method.getName());
         }
-        if (parameters.length == 1 && parameters[0].getAnnotation(AgenticToolParam.class) == null) {
+        if (dtoParam != null && dtoParam.getAnnotation(AgenticToolParam.class) == null) {
             throw new IllegalArgumentException("@AgenticTool DTO parameter must be annotated with @AgenticToolParam: "
                     + method.getDeclaringClass().getName() + "." + method.getName());
         }
     }
 
     private String buildJsonSchema(AgenticTool agenticTool, Method method) {
-        Class<?> dtoType = method.getParameterCount() == 1 ? method.getParameterTypes()[0] : null;
+        Class<?> dtoType = null;
+        for (Parameter p : method.getParameters()) {
+            if (p.getType() != AgentContext.class) {
+                dtoType = p.getType();
+                break;
+            }
+        }
         Tool tool = schemaBuilder.buildTool(agenticTool.name(), agenticTool.description(), dtoType);
 
         try {
@@ -112,14 +129,28 @@ public class ToolRegistry {
     }
 
     private ToolInvoker buildReflectionInvoker(Object bean, Method method) {
-        return arguments -> {
-            Object result;
-            if (method.getParameterCount() == 0) {
-                result = method.invoke(bean);
+        Class<?>[] paramTypes = method.getParameterTypes();
+        int argIndex = -1;
+        int ctxIndex = -1;
+        for (int i = 0; i < paramTypes.length; i++) {
+            if (paramTypes[i] == AgentContext.class) {
+                ctxIndex = i;
             } else {
-                Object arg = OBJECT_MAPPER.readValue(arguments, method.getParameterTypes()[0]);
-                result = method.invoke(bean, arg);
+                argIndex = i;
             }
+        }
+        final int finalArgIndex = argIndex;
+        final int finalCtxIndex = ctxIndex;
+
+        return (arguments, ctx) -> {
+            Object[] args = new Object[paramTypes.length];
+            if (finalArgIndex >= 0) {
+                args[finalArgIndex] = OBJECT_MAPPER.readValue(arguments, paramTypes[finalArgIndex]);
+            }
+            if (finalCtxIndex >= 0) {
+                args[finalCtxIndex] = ctx;
+            }
+            Object result = method.invoke(bean, args);
             return result != null ? result.toString() : "null";
         };
     }
