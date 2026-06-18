@@ -9,9 +9,9 @@ import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 智能体执行上下文
@@ -74,10 +74,10 @@ public class AgentContext implements Serializable {
      */
     private Integer maxTokens;
     /**
-     * 自定义变量
+     * 自定义变量，工具可读写状态
      */
     @Builder.Default
-    private Map<String, Object> variables = new HashMap<>();
+    private Map<String, Object> variables = new ConcurrentHashMap<>();
 
     /**
      * 创建当前智能体上下文快照，注意非完全深拷贝，仅用于防御性规避工具误改状态
@@ -96,7 +96,7 @@ public class AgentContext implements Serializable {
                 .frequencyPenalty(frequencyPenalty)
                 .seed(seed)
                 .maxTokens(maxTokens)
-                .variables(variables == null ? null : new HashMap<>(variables))
+                .variables(variables == null ? null : new ConcurrentHashMap<>(variables))
                 .build();
     }
 }

@@ -204,7 +204,9 @@ public class ReActAgentExecutor {
         }
         try {
             AgentContext snapshot = agentContext.snapshot();
-            return toolDef.getInvoker().invoke(arguments, snapshot);
+            String result = toolDef.getInvoker().invoke(arguments, snapshot);
+            agentContext.getVariables().putAll(snapshot.getVariables());
+            return result;
         } catch (Exception e) {
             log.error("Tool invocation error: {}", toolName, e);
             return "Error: " + e.getMessage();
