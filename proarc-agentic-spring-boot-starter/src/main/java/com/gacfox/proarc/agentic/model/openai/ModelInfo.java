@@ -35,6 +35,10 @@ public class ModelInfo implements Serializable {
     /**
      * 模型上下文
      */
+    private Integer contextLength;
+    /**
+     * 模型最大输出tokens数
+     */
     private Integer maxTokens;
     /**
      * 大语言模型额外能力列表：reasoning 支持思考，tool 支持工具调用，vision 支持图片输入
