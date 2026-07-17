@@ -3,12 +3,13 @@ package com.gacfox.proarc.agentic.client;
 import com.gacfox.proarc.agentic.exception.*;
 import com.gacfox.proarc.agentic.client.interceptor.LlmInterceptor;
 import com.gacfox.proarc.agentic.client.interceptor.LlmInterceptorChain;
-import com.gacfox.proarc.agentic.exception.*;
 import com.gacfox.proarc.agentic.model.ChatRequest;
 import com.gacfox.proarc.agentic.model.openai.ChatTemplateKwargs;
 import com.gacfox.proarc.agentic.model.openai.ModelInfo;
 import com.gacfox.proarc.agentic.model.openai.ModelRequest;
 import com.gacfox.proarc.agentic.model.openai.ModelResponse;
+import com.gacfox.proarc.agentic.model.openai.OpenAiErrorResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -37,6 +38,8 @@ public abstract class AbstractLlmClient implements LlmClient {
     protected final ModelInfo modelInfo;
     protected final WebClient webClient;
     protected final List<LlmInterceptor> interceptors;
+
+    private static final ObjectMapper ERROR_OBJECT_MAPPER = new ObjectMapper();
 
     /**
      * 构建大语言模型客户端
@@ -206,9 +209,36 @@ public abstract class AbstractLlmClient implements LlmClient {
         String provider = modelInfo.getProvider();
         String model = modelInfo.getModel();
 
+        String providerMessage = null;
+        String providerErrorCode = null;
+        if (StringUtils.hasText(body)) {
+            try {
+                OpenAiErrorResponse resp = ERROR_OBJECT_MAPPER.readValue(body, OpenAiErrorResponse.class);
+                if (resp != null && resp.getError() != null) {
+                    providerMessage = resp.getError().getMessage();
+                    providerErrorCode = resp.getError().getCode();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (StringUtils.hasText(providerMessage)) {
+            providerMessage = providerMessage.trim();
+            if (providerMessage.length() > 500) {
+                providerMessage = providerMessage.substring(0, 500) + "... [truncated]";
+            }
+        }
+
         if (statusCode == 401 || statusCode == 403) {
-            return new LlmAuthException("Authentication failed (HTTP " + statusCode + ")",
-                    cause, provider, model, statusCode, body, null);
+            String message = buildErrorMessage("Authentication failed (HTTP " + statusCode + ")", providerMessage, providerErrorCode);
+            return new LlmAuthException(message, cause, provider, model, statusCode, body, providerErrorCode);
+        }
+        if (statusCode == 400) {
+            String message = buildErrorMessage("Bad request (HTTP 400)", providerMessage, providerErrorCode);
+            return new LlmBadRequestException(message, cause, provider, model, statusCode, body, providerErrorCode);
+        }
+        if (statusCode == 404) {
+            String message = buildErrorMessage("Not found (HTTP 404)", providerMessage, providerErrorCode);
+            return new LlmNotFoundException(message, cause, provider, model, statusCode, body, providerErrorCode);
         }
         if (statusCode == 429) {
             Long retryAfter = null;
@@ -221,15 +251,25 @@ public abstract class AbstractLlmClient implements LlmClient {
                 } catch (NumberFormatException ignored) {
                 }
             }
-            return new LlmRateLimitException("Rate limited (HTTP 429)",
-                    cause, provider, model, statusCode, body, null, retryAfter);
+            String message = buildErrorMessage("Rate limited (HTTP 429)", providerMessage, providerErrorCode);
+            return new LlmRateLimitException(message, cause, provider, model, statusCode, body, providerErrorCode, retryAfter);
         }
         if (statusCode >= 500) {
-            return new LlmServerException("Provider server error (HTTP " + statusCode + ")",
-                    cause, provider, model, statusCode, body, null);
+            String message = buildErrorMessage("Provider server error (HTTP " + statusCode + ")", providerMessage, providerErrorCode);
+            return new LlmServerException(message, cause, provider, model, statusCode, body, providerErrorCode);
         }
-        return new LlmProviderException("Provider error (HTTP " + statusCode + ")",
-                cause, LlmErrorCode.PROVIDER_ERROR, provider, model, false,
-                statusCode, body, null, null);
+        String message = buildErrorMessage("Provider error (HTTP " + statusCode + ")", providerMessage, providerErrorCode);
+        return new LlmProviderException(message, cause, LlmErrorCode.PROVIDER_ERROR, provider, model, false,
+                statusCode, body, providerErrorCode, null);
+    }
+
+    private static String buildErrorMessage(String base, String providerMessage, String providerErrorCode) {
+        if (!StringUtils.hasText(providerMessage)) {
+            return base;
+        }
+        if (StringUtils.hasText(providerErrorCode)) {
+            return base + ": " + providerErrorCode + " - " + providerMessage;
+        }
+        return base + ": " + providerMessage;
     }
 }
