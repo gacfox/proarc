@@ -6,6 +6,8 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.lang.reflect.Method;
+
 @Configuration
 public class ToolRegistryAutoConfiguration {
 
@@ -19,7 +21,7 @@ public class ToolRegistryAutoConfiguration {
         return new BeanPostProcessor() {
             @Override
             public Object postProcessAfterInitialization(Object bean, String beanName) {
-                for (var method : bean.getClass().getDeclaredMethods()) {
+                for (Method method : bean.getClass().getDeclaredMethods()) {
                     if (method.isAnnotationPresent(AgenticTool.class)) {
                         toolRegistry.register(bean);
                         break;
