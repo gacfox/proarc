@@ -54,7 +54,10 @@ public class RetryInterceptor implements LlmInterceptor {
                 return chain.nextBlocking(request);
             } catch (LlmException e) {
                 lastError = e;
-                if (!e.isRetryable() || attempt == maxRetries) {
+                if (!e.isRetryable()) {
+                    throw e;
+                }
+                if (attempt == maxRetries) {
                     break;
                 }
                 sleep(computeDelay(attempt, e));
@@ -75,10 +78,7 @@ public class RetryInterceptor implements LlmInterceptor {
                             Throwable err = tuple.getT1();
                             int attempt = tuple.getT2();
                             if (!(err instanceof LlmException le) || !le.isRetryable()) {
-                                return Mono.error(new LlmRetryExhaustedException(
-                                        "Retry exhausted after " + attempt + " attempts",
-                                        modelInfo.getProvider(), modelInfo.getModel(),
-                                        attempt, err));
+                                return Mono.error(err);
                             }
                             if (attempt > maxRetries) {
                                 return Mono.error(new LlmRetryExhaustedException(
