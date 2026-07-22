@@ -1,5 +1,6 @@
 package com.gacfox.proarc.agentic.client;
 
+import com.gacfox.proarc.agentic.client.header.LlmHeaderProvider;
 import com.gacfox.proarc.agentic.client.interceptor.LlmInterceptor;
 import com.gacfox.proarc.agentic.exception.LlmException;
 import com.gacfox.proarc.agentic.model.openai.*;
@@ -26,9 +27,13 @@ import java.util.TreeMap;
 public final class OpenAiLlmClient extends AbstractLlmClient {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    private final LlmHeaderProvider headerProvider;
+
     @Builder
-    private OpenAiLlmClient(ModelInfo modelInfo, List<LlmInterceptor> interceptors, HttpClient httpClient) {
+    private OpenAiLlmClient(ModelInfo modelInfo, List<LlmInterceptor> interceptors, HttpClient httpClient,
+                            LlmHeaderProvider headerProvider) {
         super(modelInfo, interceptors, httpClient);
+        this.headerProvider = headerProvider;
     }
 
     @Override
@@ -161,6 +166,21 @@ public final class OpenAiLlmClient extends AbstractLlmClient {
         }
     }
 
+    private void applyHeaders(HttpHeaders headers, ModelRequest modelRequest) {
+        headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + modelInfo.getSk());
+        headers.set(HttpHeaders.ACCEPT, MediaType.TEXT_EVENT_STREAM_VALUE);
+        headers.set(HttpHeaders.TRANSFER_ENCODING, "chunked");
+        if (modelInfo.getHeaders() != null) {
+            modelInfo.getHeaders().forEach(headers::set);
+        }
+        if (headerProvider != null) {
+            Map<String, String> dynamicHeaders = headerProvider.resolve(modelInfo, modelRequest);
+            if (dynamicHeaders != null) {
+                dynamicHeaders.forEach(headers::set);
+            }
+        }
+    }
+
     private static class ToolCallBuilder {
         String id;
         String type;
@@ -174,9 +194,7 @@ public final class OpenAiLlmClient extends AbstractLlmClient {
 
         return webClient.post()
                 .uri(modelInfo.getEndpoint())
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + modelInfo.getSk())
-                .header(HttpHeaders.ACCEPT, MediaType.TEXT_EVENT_STREAM_VALUE)
-                .header(HttpHeaders.TRANSFER_ENCODING, "chunked")
+                .headers(headers -> applyHeaders(headers, modelRequest))
                 .bodyValue(modelRequest)
                 .retrieve()
                 .bodyToFlux(String.class)

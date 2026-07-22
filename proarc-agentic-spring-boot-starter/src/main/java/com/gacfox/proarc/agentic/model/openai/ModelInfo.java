@@ -7,6 +7,7 @@ import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 模型配置信息
@@ -44,6 +45,10 @@ public class ModelInfo implements Serializable {
      * 大语言模型额外能力列表：reasoning 支持思考，tool 支持工具调用，vision 支持图片输入
      */
     private List<String> capabilities;
+    /**
+     * 自定义静态请求Header，会覆盖同名默认Header，动态Header（LlmHeaderProvider）优先级高于此配置
+     */
+    private Map<String, String> headers;
 
     /**
      * 支持思考
