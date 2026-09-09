@@ -119,6 +119,7 @@ public class ReActAgentExecutor {
 
         String finishReason = response.extractBlockingFinishReason();
         if (!"tool_calls".equals(finishReason)) {
+            repairOrphanedToolCalls(assistantMessage, finishReason, context, responses);
             context.getMessages().add(Message.builder()
                     .role(Message.ROLE_USER)
                     .content("""
@@ -132,6 +133,7 @@ public class ReActAgentExecutor {
         }
 
         List<ToolCall> toolCalls = response.extractBlockingToolCalls();
+        String finalMessage = null;
         for (ToolCall toolCall : toolCalls) {
             ToolCallFunction fn = toolCall.getFunction();
             String toolName = fn.getName();
@@ -139,22 +141,54 @@ public class ReActAgentExecutor {
 
             responses.add(AgentResponse.toolCall(toolCall.getId(), toolName, arguments));
 
+            if (finalMessage != null) {
+                String skipped = "Skipped: the agent loop has already ended with final_answer.";
+                responses.add(AgentResponse.toolResult(toolCall.getId(), toolName, skipped));
+                context.getMessages().add(toolResultMessage(toolCall.getId(), skipped));
+                continue;
+            }
+
             if (FINAL_ANSWER_TOOL.equals(toolName)) {
-                String finalMessage = extractFinalAnswer(arguments);
+                finalMessage = extractFinalAnswer(arguments);
                 responses.add(AgentResponse.finalAnswer(finalMessage));
-                return AgentLoopResult.finishWith(responses);
+                context.getMessages().add(toolResultMessage(toolCall.getId(), "Final answer submitted."));
+                continue;
             }
 
             String result = invokeTool(toolMap, toolName, arguments, context);
             responses.add(AgentResponse.toolResult(toolCall.getId(), toolName, result));
-
-            context.getMessages().add(Message.builder()
-                    .role(Message.ROLE_TOOL)
-                    .toolCallId(toolCall.getId())
-                    .content(result)
-                    .build());
+            context.getMessages().add(toolResultMessage(toolCall.getId(), result));
         }
-        return AgentLoopResult.continueWith(responses);
+        return finalMessage != null
+                ? AgentLoopResult.finishWith(responses)
+                : AgentLoopResult.continueWith(responses);
+    }
+
+    /**
+     * 修复非正常结束响应中残留的孤儿tool_calls，保证消息历史中每个tool_call都有配对的工具结果消息
+     */
+    private void repairOrphanedToolCalls(Message assistantMessage, String finishReason,
+                                         AgentContext context, List<AgentResponse> responses) {
+        List<ToolCall> orphaned = assistantMessage.getToolCalls();
+        if (orphaned == null || orphaned.isEmpty()) {
+            return;
+        }
+        if (orphaned.stream().anyMatch(toolCall -> !StringUtils.hasText(toolCall.getId()))) {
+            assistantMessage.setToolCalls(null);
+            return;
+        }
+        String note = "Error: tool call was not executed because the response ended with finish_reason='"
+                + finishReason + "'.";
+        for (ToolCall toolCall : orphaned) {
+            ToolCallFunction fn = toolCall.getFunction();
+            responses.add(AgentResponse.toolCall(toolCall.getId(), fn.getName(), fn.getArguments()));
+            responses.add(AgentResponse.toolResult(toolCall.getId(), fn.getName(), note));
+            context.getMessages().add(toolResultMessage(toolCall.getId(), note));
+        }
+    }
+
+    private Message toolResultMessage(String toolCallId, String content) {
+        return Message.builder().role(Message.ROLE_TOOL).toolCallId(toolCallId).content(content).build();
     }
 
     private List<ToolDefinition> resolveToolDefinitions(List<String> toolNames) {
