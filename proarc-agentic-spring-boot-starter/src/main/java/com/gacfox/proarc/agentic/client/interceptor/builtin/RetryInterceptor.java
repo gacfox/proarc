@@ -14,6 +14,7 @@ import reactor.util.retry.Retry;
 
 import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 重试拦截器，优先尝试使用Retry-After响应头，否则自动指数退避
@@ -71,12 +72,17 @@ public class RetryInterceptor implements LlmInterceptor {
 
     @Override
     public Flux<ModelResponse> interceptStreaming(ModelRequest request, ModelInfo modelInfo, LlmInterceptorChain chain) {
+        AtomicBoolean emitted = new AtomicBoolean();
         return chain.nextStreaming(request)
+                .doOnNext(chunk -> emitted.set(true))
                 .retryWhen(Retry.withThrowable(companion -> companion
                         .zipWith(Flux.range(1, maxRetries + 1))
                         .flatMap(tuple -> {
                             Throwable err = tuple.getT1();
                             int attempt = tuple.getT2();
+                            if (emitted.get()) {
+                                return Mono.error(err);
+                            }
                             if (!(err instanceof LlmException le) || !le.isRetryable()) {
                                 return Mono.error(err);
                             }

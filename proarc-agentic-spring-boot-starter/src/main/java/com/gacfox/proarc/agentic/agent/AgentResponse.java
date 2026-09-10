@@ -38,7 +38,15 @@ public class AgentResponse implements Serializable {
         /**
          * 智能体执行出错
          */
-        ERROR
+        ERROR,
+        /**
+         * 思考内容增量片段（仅streaming模式产生）
+         */
+        THINKING_DELTA,
+        /**
+         * 最终回答增量片段（仅streaming模式产生）
+         */
+        FINAL_ANSWER_DELTA
     }
 
     /**
@@ -116,5 +124,25 @@ public class AgentResponse implements Serializable {
      */
     public static AgentResponse error(String content) {
         return AgentResponse.builder().type(Type.ERROR).content(content).build();
+    }
+
+    /**
+     * 生成智能体思考增量事件（仅streaming模式）
+     *
+     * @param content 思考内容增量片段
+     * @return 事件对象
+     */
+    public static AgentResponse thinkingDelta(String content) {
+        return AgentResponse.builder().type(Type.THINKING_DELTA).content(content).build();
+    }
+
+    /**
+     * 生成智能体最终回答增量事件（仅streaming模式）
+     *
+     * @param content 回答内容增量片段
+     * @return 事件对象
+     */
+    public static AgentResponse finalAnswerDelta(String content) {
+        return AgentResponse.builder().type(Type.FINAL_ANSWER_DELTA).content(content).build();
     }
 }

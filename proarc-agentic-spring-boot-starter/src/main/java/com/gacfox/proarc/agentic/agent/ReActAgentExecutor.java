@@ -65,7 +65,7 @@ public class ReActAgentExecutor {
                         AgentInterceptor interceptor = sortedInterceptors.get(index++);
                         return interceptor.intercept(context, this);
                     }
-                    return executeLoop(context);
+                    return executeLoop(context, sink);
                 }
             };
 
@@ -81,7 +81,7 @@ public class ReActAgentExecutor {
         sink.next(AgentResponse.error("Agent reached maximum iterations"));
     }
 
-    private AgentLoopResult executeLoop(AgentContext context) {
+    private AgentLoopResult executeLoop(AgentContext context, FluxSink<AgentResponse> sink) {
         LlmClient llmClient = context.getLlmClient() != null ? context.getLlmClient() : defaultLlmClient;
         List<String> toolNames = context.getToolNames() != null && !context.getToolNames().isEmpty()
                 ? context.getToolNames() : defaultToolNames;
@@ -107,7 +107,12 @@ public class ReActAgentExecutor {
                 .tools(tools)
                 .toolChoice("required")
                 .build();
-        ModelResponse response = llmClient.blockingChat(chatRequest);
+        ModelResponse response = context.isStreaming()
+                ? streamingChat(llmClient, chatRequest, sink)
+                : llmClient.blockingChat(chatRequest);
+        if (response.getChoices() == null || response.getChoices().isEmpty()) {
+            throw new IllegalStateException("LLM returned an empty response");
+        }
 
         Message assistantMessage = response.getChoices().getFirst().getMessage();
         context.getMessages().add(assistantMessage);
@@ -162,6 +167,167 @@ public class ReActAgentExecutor {
         return finalMessage != null
                 ? AgentLoopResult.finishWith(responses)
                 : AgentLoopResult.continueWith(responses);
+    }
+
+    private ModelResponse streamingChat(LlmClient llmClient, ChatRequest chatRequest, FluxSink<AgentResponse> sink) {
+        StreamingDeltaEmitter emitter = new StreamingDeltaEmitter(sink);
+        llmClient.streamingChat(chatRequest)
+                .doOnNext(emitter::accept)
+                .blockLast();
+        return ModelResponse.mergeStreamChunks(emitter.chunks);
+    }
+
+    /**
+     * 流式增量事件发射器：收集chunk用于最终聚合，同时把思考与final_answer的内容增量实时发射为delta事件
+     */
+    private static final class StreamingDeltaEmitter {
+        private final FluxSink<AgentResponse> sink;
+        private final List<ModelResponse> chunks = new ArrayList<>();
+        private final Map<Integer, String> toolNames = new HashMap<>();
+        private final Map<Integer, FinalAnswerDeltaExtractor> extractors = new HashMap<>();
+
+        private StreamingDeltaEmitter(FluxSink<AgentResponse> sink) {
+            this.sink = sink;
+        }
+
+        void accept(ModelResponse chunk) {
+            chunks.add(chunk);
+            if (chunk.getChoices() == null) {
+                return;
+            }
+            for (Choice choice : chunk.getChoices()) {
+                if (choice.getIndex() != null && choice.getIndex() != 0) {
+                    continue;
+                }
+                Delta delta = choice.getDelta();
+                if (delta == null) {
+                    continue;
+                }
+                if (StringUtils.hasText(delta.getReasoning())) {
+                    sink.next(AgentResponse.thinkingDelta(delta.getReasoning()));
+                }
+                if (delta.getToolCalls() != null) {
+                    for (ToolCall toolCall : delta.getToolCalls()) {
+                        int index = toolCall.getIndex() != null ? toolCall.getIndex() : 0;
+                        ToolCallFunction fn = toolCall.getFunction();
+                        if (fn == null) {
+                            continue;
+                        }
+                        if (fn.getName() != null) {
+                            toolNames.put(index, fn.getName());
+                        }
+                        if (FINAL_ANSWER_TOOL.equals(toolNames.get(index)) && fn.getArguments() != null) {
+                            String text = extractors.computeIfAbsent(index, k -> new FinalAnswerDeltaExtractor())
+                                    .accept(fn.getArguments());
+                            if (!text.isEmpty()) {
+                                sink.next(AgentResponse.finalAnswerDelta(text));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * final_answer工具参数的增量解析器：从流式拼接的JSON参数中增量解码message字段文本，
+     * 容错处理不完整JSON与跨chunk边界的转义序列
+     */
+    private static final class FinalAnswerDeltaExtractor {
+        private final StringBuilder raw = new StringBuilder();
+        private int emitted;
+
+        String accept(String fragment) {
+            raw.append(fragment);
+            String decoded = decodeMessageValue(raw);
+            if (decoded.length() <= emitted) {
+                return "";
+            }
+            String delta = decoded.substring(emitted);
+            emitted = decoded.length();
+            return delta;
+        }
+
+        private static String decodeMessageValue(StringBuilder raw) {
+            int keyIndex = raw.indexOf("\"message\"");
+            if (keyIndex < 0) {
+                return "";
+            }
+            int i = keyIndex + "\"message\"".length();
+            while (i < raw.length() && (raw.charAt(i) == ':' || Character.isWhitespace(raw.charAt(i)))) {
+                i++;
+            }
+            if (i >= raw.length() || raw.charAt(i) != '"') {
+                return "";
+            }
+            i++;
+            StringBuilder out = new StringBuilder();
+            boolean closed = false;
+            while (i < raw.length()) {
+                char c = raw.charAt(i);
+                if (c == '"') {
+                    closed = true;
+                    break;
+                }
+                if (c != '\\') {
+                    out.append(c);
+                    i++;
+                    continue;
+                }
+                if (i + 1 >= raw.length()) {
+                    break;
+                }
+                char esc = raw.charAt(i + 1);
+                switch (esc) {
+                    case '"', '\\', '/' -> {
+                        out.append(esc);
+                        i += 2;
+                    }
+                    case 'n' -> {
+                        out.append('\n');
+                        i += 2;
+                    }
+                    case 't' -> {
+                        out.append('\t');
+                        i += 2;
+                    }
+                    case 'r' -> {
+                        out.append('\r');
+                        i += 2;
+                    }
+                    case 'b' -> {
+                        out.append('\b');
+                        i += 2;
+                    }
+                    case 'f' -> {
+                        out.append('\f');
+                        i += 2;
+                    }
+                    case 'u' -> {
+                        if (i + 5 >= raw.length()) {
+                            return out.toString();
+                        }
+                        int codeUnit;
+                        try {
+                            codeUnit = Integer.parseInt(raw.substring(i + 2, i + 6), 16);
+                        } catch (NumberFormatException e) {
+                            return out.toString();
+                        }
+                        out.append((char) codeUnit);
+                        i += 6;
+                    }
+                    default -> {
+                        out.append(esc);
+                        i += 2;
+                    }
+                }
+            }
+            int length = out.length();
+            if (!closed && length > 0 && Character.isHighSurrogate(out.charAt(length - 1))) {
+                out.setLength(length - 1);
+            }
+            return out.toString();
+        }
     }
 
     /**

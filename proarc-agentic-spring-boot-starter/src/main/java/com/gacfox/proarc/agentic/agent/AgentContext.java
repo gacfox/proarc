@@ -74,6 +74,11 @@ public class AgentContext implements Serializable {
      */
     private Integer maxTokens;
     /**
+     * 是否流式输出思考与最终回答内容（产生THINKING_DELTA/FINAL_ANSWER_DELTA事件），默认false一次性输出
+     */
+    @Builder.Default
+    private boolean streaming = false;
+    /**
      * 自定义变量，工具可读写状态
      */
     @Builder.Default
@@ -96,6 +101,7 @@ public class AgentContext implements Serializable {
                 .frequencyPenalty(frequencyPenalty)
                 .seed(seed)
                 .maxTokens(maxTokens)
+                .streaming(streaming)
                 .variables(variables == null ? null : new ConcurrentHashMap<>(variables))
                 .build();
     }
