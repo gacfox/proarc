@@ -160,7 +160,13 @@ public class ReActAgentExecutor {
                 continue;
             }
 
-            String result = invokeTool(toolMap, toolName, arguments, context);
+            String result;
+            if (isValidJson(arguments)) {
+                result = invokeTool(toolMap, toolName, arguments, context);
+            } else {
+                fn.setArguments("{}");
+                result = "Error: tool arguments are not valid JSON (possibly truncated): " + arguments;
+            }
             responses.add(AgentResponse.toolResult(toolCall.getId(), toolName, result));
             context.getMessages().add(toolResultMessage(toolCall.getId(), result));
         }
@@ -395,6 +401,21 @@ public class ReActAgentExecutor {
                                 .build())
                         .build()).build());
         return tools;
+    }
+
+    /**
+     * 校验工具参数是否为合法JSON，截断产生的非法参数若保留在消息历史中会导致后续请求被LLM端点拒绝
+     */
+    private static boolean isValidJson(String arguments) {
+        if (!StringUtils.hasText(arguments)) {
+            return false;
+        }
+        try {
+            OBJECT_MAPPER.readTree(arguments);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private String invokeTool(Map<String, ToolDefinition> toolMap, String toolName, String arguments, AgentContext agentContext) {
