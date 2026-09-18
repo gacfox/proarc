@@ -105,7 +105,7 @@ public class ReActAgentExecutor {
                 .seed(context.getSeed())
                 .maxTokens(context.getMaxTokens())
                 .tools(tools)
-                .toolChoice("required")
+                .toolChoice("auto")
                 .build();
         ModelResponse response = context.isStreaming()
                 ? streamingChat(llmClient, chatRequest, sink)
