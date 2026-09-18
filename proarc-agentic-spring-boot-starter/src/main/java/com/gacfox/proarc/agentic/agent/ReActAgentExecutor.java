@@ -13,7 +13,7 @@ import lombok.Builder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.FluxSink;
+import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.*;
@@ -35,19 +35,21 @@ public class ReActAgentExecutor {
     private final int maxIterations = 50;
 
     public Flux<AgentResponse> execute(AgentContext context) {
-        return Flux.<AgentResponse>create(sink -> {
+        Sinks.Many<AgentResponse> sink = Sinks.many().unicast().onBackpressureBuffer();
+        Schedulers.boundedElastic().schedule(() -> {
             try {
                 doExecute(context, sink);
             } catch (Exception e) {
                 log.error("Agent execution error", e);
-                sink.next(AgentResponse.error(e.getMessage()));
+                emitSignal(sink, AgentResponse.error(e.getMessage()));
             } finally {
-                sink.complete();
+                sink.tryEmitComplete();
             }
-        }).subscribeOn(Schedulers.boundedElastic());
+        });
+        return sink.asFlux();
     }
 
-    private void doExecute(AgentContext context, FluxSink<AgentResponse> sink) {
+    private void doExecute(AgentContext context, Sinks.Many<AgentResponse> sink) {
         context.setMessages(new ArrayList<>(context.getMessages()));
         List<AgentInterceptor> sortedInterceptors = Optional.ofNullable(interceptors)
                 .orElseGet(Collections::emptyList)
@@ -70,18 +72,15 @@ public class ReActAgentExecutor {
             };
 
             AgentLoopResult loopResult = chain.next(context);
-            for (AgentResponse response : loopResult.getResponses()) {
-                sink.next(response);
-            }
             if (loopResult.isFinished() || loopResult.isSuspended()) {
                 return;
             }
         }
 
-        sink.next(AgentResponse.error("Agent reached maximum iterations"));
+        emitSignal(sink, AgentResponse.error("Agent reached maximum iterations"));
     }
 
-    private AgentLoopResult executeLoop(AgentContext context, FluxSink<AgentResponse> sink) {
+    private AgentLoopResult executeLoop(AgentContext context, Sinks.Many<AgentResponse> sink) {
         LlmClient llmClient = context.getLlmClient() != null ? context.getLlmClient() : defaultLlmClient;
         List<String> toolNames = context.getToolNames() != null && !context.getToolNames().isEmpty()
                 ? context.getToolNames() : defaultToolNames;
@@ -119,12 +118,12 @@ public class ReActAgentExecutor {
 
         String thinking = response.extractBlockingReasoningContent();
         if (StringUtils.hasText(thinking)) {
-            responses.add(AgentResponse.thinking(thinking));
+            emit(sink, responses, AgentResponse.thinking(thinking));
         }
 
         String finishReason = response.extractBlockingFinishReason();
         if (!"tool_calls".equals(finishReason)) {
-            repairOrphanedToolCalls(assistantMessage, finishReason, context, responses);
+            repairOrphanedToolCalls(assistantMessage, finishReason, context, sink, responses);
             context.getMessages().add(Message.builder()
                     .role(Message.ROLE_USER)
                     .content("""
@@ -144,18 +143,18 @@ public class ReActAgentExecutor {
             String toolName = fn.getName();
             String arguments = fn.getArguments();
 
-            responses.add(AgentResponse.toolCall(toolCall.getId(), toolName, arguments));
+            emit(sink, responses, AgentResponse.toolCall(toolCall.getId(), toolName, arguments));
 
             if (finalMessage != null) {
                 String skipped = "Skipped: the agent loop has already ended with final_answer.";
-                responses.add(AgentResponse.toolResult(toolCall.getId(), toolName, skipped));
+                emit(sink, responses, AgentResponse.toolResult(toolCall.getId(), toolName, skipped));
                 context.getMessages().add(toolResultMessage(toolCall.getId(), skipped));
                 continue;
             }
 
             if (FINAL_ANSWER_TOOL.equals(toolName)) {
                 finalMessage = extractFinalAnswer(arguments);
-                responses.add(AgentResponse.finalAnswer(finalMessage));
+                emit(sink, responses, AgentResponse.finalAnswer(finalMessage));
                 context.getMessages().add(toolResultMessage(toolCall.getId(), "Final answer submitted."));
                 continue;
             }
@@ -167,7 +166,7 @@ public class ReActAgentExecutor {
                 fn.setArguments("{}");
                 result = "Error: tool arguments are not valid JSON (possibly truncated): " + arguments;
             }
-            responses.add(AgentResponse.toolResult(toolCall.getId(), toolName, result));
+            emit(sink, responses, AgentResponse.toolResult(toolCall.getId(), toolName, result));
             context.getMessages().add(toolResultMessage(toolCall.getId(), result));
         }
         return finalMessage != null
@@ -175,24 +174,43 @@ public class ReActAgentExecutor {
                 : AgentLoopResult.continueWith(responses);
     }
 
-    private ModelResponse streamingChat(LlmClient llmClient, ChatRequest chatRequest, FluxSink<AgentResponse> sink) {
+    private ModelResponse streamingChat(LlmClient llmClient, ChatRequest chatRequest, Sinks.Many<AgentResponse> sink) {
         StreamingDeltaEmitter emitter = new StreamingDeltaEmitter(sink);
         llmClient.streamingChat(chatRequest)
+                .publishOn(Schedulers.boundedElastic())
                 .doOnNext(emitter::accept)
                 .blockLast();
         return ModelResponse.mergeStreamChunks(emitter.chunks);
+    }
+
+    private static void emit(Sinks.Many<AgentResponse> sink, List<AgentResponse> responses, AgentResponse response) {
+        responses.add(response);
+        emitSignal(sink, response);
+    }
+
+    private static void emitSignal(Sinks.Many<AgentResponse> sink, AgentResponse response) {
+        while (true) {
+            Sinks.EmitResult result = sink.tryEmitNext(response);
+            if (result != Sinks.EmitResult.FAIL_NON_SERIALIZED) {
+                if (result.isFailure() && result != Sinks.EmitResult.FAIL_CANCELLED
+                        && result != Sinks.EmitResult.FAIL_TERMINATED) {
+                    log.warn("Emit failed: {} type={}", result, response.getType());
+                }
+                return;
+            }
+        }
     }
 
     /**
      * 流式增量事件发射器：收集chunk用于最终聚合，同时把思考与final_answer的内容增量实时发射为delta事件
      */
     private static final class StreamingDeltaEmitter {
-        private final FluxSink<AgentResponse> sink;
+        private final Sinks.Many<AgentResponse> sink;
         private final List<ModelResponse> chunks = new ArrayList<>();
         private final Map<Integer, String> toolNames = new HashMap<>();
         private final Map<Integer, FinalAnswerDeltaExtractor> extractors = new HashMap<>();
 
-        private StreamingDeltaEmitter(FluxSink<AgentResponse> sink) {
+        private StreamingDeltaEmitter(Sinks.Many<AgentResponse> sink) {
             this.sink = sink;
         }
 
@@ -210,7 +228,7 @@ public class ReActAgentExecutor {
                     continue;
                 }
                 if (StringUtils.hasText(delta.getReasoning())) {
-                    sink.next(AgentResponse.thinkingDelta(delta.getReasoning()));
+                    emitSignal(sink, AgentResponse.thinkingDelta(delta.getReasoning()));
                 }
                 if (delta.getToolCalls() != null) {
                     for (ToolCall toolCall : delta.getToolCalls()) {
@@ -226,7 +244,7 @@ public class ReActAgentExecutor {
                             String text = extractors.computeIfAbsent(index, k -> new FinalAnswerDeltaExtractor())
                                     .accept(fn.getArguments());
                             if (!text.isEmpty()) {
-                                sink.next(AgentResponse.finalAnswerDelta(text));
+                                emitSignal(sink, AgentResponse.finalAnswerDelta(text));
                             }
                         }
                     }
@@ -340,7 +358,8 @@ public class ReActAgentExecutor {
      * 修复非正常结束响应中残留的孤儿tool_calls，保证消息历史中每个tool_call都有配对的工具结果消息
      */
     private void repairOrphanedToolCalls(Message assistantMessage, String finishReason,
-                                         AgentContext context, List<AgentResponse> responses) {
+                                         AgentContext context, Sinks.Many<AgentResponse> sink,
+                                         List<AgentResponse> responses) {
         List<ToolCall> orphaned = assistantMessage.getToolCalls();
         if (orphaned == null || orphaned.isEmpty()) {
             return;
@@ -353,8 +372,8 @@ public class ReActAgentExecutor {
                 + finishReason + "'.";
         for (ToolCall toolCall : orphaned) {
             ToolCallFunction fn = toolCall.getFunction();
-            responses.add(AgentResponse.toolCall(toolCall.getId(), fn.getName(), fn.getArguments()));
-            responses.add(AgentResponse.toolResult(toolCall.getId(), fn.getName(), note));
+            emit(sink, responses, AgentResponse.toolCall(toolCall.getId(), fn.getName(), fn.getArguments()));
+            emit(sink, responses, AgentResponse.toolResult(toolCall.getId(), fn.getName(), note));
             context.getMessages().add(toolResultMessage(toolCall.getId(), note));
         }
     }

@@ -48,7 +48,6 @@ public final class OpenAiLlmClient extends AbstractLlmClient {
     private void applyHeaders(HttpHeaders headers, ModelRequest modelRequest) {
         headers.set(HttpHeaders.AUTHORIZATION, "Bearer " + modelInfo.getSk());
         headers.set(HttpHeaders.ACCEPT, MediaType.TEXT_EVENT_STREAM_VALUE);
-        headers.set(HttpHeaders.TRANSFER_ENCODING, "chunked");
         if (modelInfo.getHeaders() != null) {
             modelInfo.getHeaders().forEach(headers::set);
         }
