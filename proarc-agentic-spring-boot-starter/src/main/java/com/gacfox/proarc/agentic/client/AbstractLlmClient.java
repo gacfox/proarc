@@ -107,10 +107,9 @@ public abstract class AbstractLlmClient implements LlmClient {
                 .build();
         if (!CollectionUtils.isEmpty(modelInfo.getCapabilities()) &&
                 modelInfo.getCapabilities().contains(ModelInfo.CAPABILITY_REASONING) &&
-                chatRequest.getEnableThinking() != null &&
-                chatRequest.getEnableThinking()) {
+                chatRequest.getEnableThinking() != null) {
             modelRequest.setChatTemplateKwargs(ChatTemplateKwargs.builder()
-                    .enableThinking(true)
+                    .enableThinking(chatRequest.getEnableThinking())
                     .build());
         }
         return modelRequest;
